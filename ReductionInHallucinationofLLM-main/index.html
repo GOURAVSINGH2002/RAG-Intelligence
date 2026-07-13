@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RAG Intelligence — Anti-Hallucination Chatbot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet"/>
+<style>
+/* ─── DESIGN TOKENS ──────────────────────────────────────────── */
+:root {
+  --bg:          #080c12;
+  --surface:     #0e1520;
+  --surface2:    #141d2e;
+  --border:      rgba(99,179,237,0.12);
+  --border2:     rgba(99,179,237,0.22);
+  --glow:        rgba(99,179,237,0.06);
+
+  --accent:      #63b3ed;
+  --accent2:     #4fd1c5;
+  --accent3:     #f6ad55;
+
+  --baseline-c:  #a78bfa;
+  --hallu-c:     #fc8181;
+  --rag-c:       #68d391;
+
+  --text:        #e2e8f0;
+  --text-muted:  #718096;
+  --text-dim:    #4a5568;
+
+  --radius:      16px;
+  --radius-sm:   10px;
+  --transition:  0.25s cubic-bezier(0.4,0,0.2,1);
+
+  --font-display: 'Syne', sans-serif;
+  --font-body:    'Instrument Serif', serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+
+/* ─── RESET & BASE ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; scroll-behavior: smooth; }
+body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── BACKGROUND CANVAS ──────────────────────────────────────── */
+#bg-canvas {
+  position: fixed; inset: 0; z-index: 0;
+  pointer-events: none;
+}
+
+/* ─── LAYOUT ─────────────────────────────────────────────────── */
+.app {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column;
+  height: 100vh; overflow: hidden;
+}
+
+/* ─── HEADER ─────────────────────────────────────────────────── */
+header {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 28px;
+  background: rgba(8,12,18,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  display: flex; align-items: center; gap: 12px;
+}
+.logo-icon {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.logo-text {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.logo-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-top: -2px;
+}
+
+.header-badges {
+  display: flex; gap: 8px; align-items: center;
+}
+.badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.badge-model {
+  color: var(--accent);
+  border-color: rgba(99,179,237,0.3);
+  background: rgba(99,179,237,0.06);
+}
+.badge-live {
+  color: var(--rag-c);
+  border-color: rgba(104,211,145,0.3);
+  background: rgba(104,211,145,0.06);
+  display: flex; align-items: center; gap: 5px;
+}
+.live-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--rag-c);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ─── LEGEND BAR ─────────────────────────────────────────────── */
+.legend-bar {
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; gap: 28px;
+  padding: 10px 24px;
+  background: rgba(14,21,32,0.7);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+}
+.legend-item {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+
+/* ─── CHAT AREA ──────────────────────────────────────────────── */
+.chat-area {
+  flex: 1;
+  overflow-y: auto;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  scroll-behavior: smooth;
+}
+.chat-area::-webkit-scrollbar { width: 4px; }
+.chat-area::-webkit-scrollbar-track { background: transparent; }
+.chat-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ─── WELCOME SCREEN ─────────────────────────────────────────── */
+.welcome {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center;
+  flex: 1;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 20px;
+  animation: fadeUp 0.6s ease both;
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.welcome-orb {
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, var(--accent), var(--accent2), var(--accent3), var(--accent));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px;
+  animation: spin-orb 8s linear infinite;
+  box-shadow: 0 0 40px rgba(99,179,237,0.3);
+}
+@keyframes spin-orb { from { filter: hue-rotate(0deg); } to { filter: hue-rotate(360deg); } }
+.welcome h1 {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  background: linear-gradient(135deg, var(--text), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.welcome p {
+  color: var(--text-muted);
+  font-size: 15px;
+  max-width: 480px;
+  font-style: italic;
+}
+.suggestion-chips {
+  display: flex; flex-wrap: wrap;
+  gap: 10px; justify-content: center;
+  margin-top: 8px;
+}
+.chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 8px 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+  letter-spacing: 0.02em;
+}
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(99,179,237,0.08);
+  transform: translateY(-2px);
+}
+
+/* ─── MESSAGE BLOCK ──────────────────────────────────────────── */
+.message-block {
+  display: flex; flex-direction: column; gap: 16px;
+  animation: fadeUp 0.4s ease both;
+}
+
+/* User question bubble */
+.user-bubble-wrap {
+  display: flex; justify-content: flex-end;
+}
+.user-bubble {
+  max-width: 580px;
+  background: linear-gradient(135deg, rgba(99,179,237,0.15), rgba(79,209,197,0.10));
+  border: 1px solid var(--border2);
+  border-radius: var(--radius) var(--radius) 4px var(--radius);
+  padding: 14px 20px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.user-avatar {
+  width: 28px; height: 28px; flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+
+/* ─── THREE ANSWER CARDS ─────────────────────────────────────── */
+.answers-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+@media (max-width: 900px) {
+  .answers-grid { grid-template-columns: 1fr; }
+}
+
+.answer-card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  transition: var(--transition);
+  position: relative;
+}
+.answer-card:hover {
+  border-color: var(--border2);
+  transform: translateY(-2px);
+}
+.answer-card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.card-baseline::before { background: linear-gradient(90deg, var(--baseline-c), transparent); }
+.card-hallu::before    { background: linear-gradient(90deg, var(--hallu-c), transparent); }
+.card-rag::before      { background: linear-gradient(90deg, var(--rag-c), transparent); }
+
+.card-rag {
+  border-color: rgba(104,211,145,0.2);
+  box-shadow: 0 0 30px rgba(104,211,145,0.05);
+}
+
+.card-header {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2);
+}
+.card-icon { font-size: 18px; }
+.card-title-group { flex: 1; }
+.card-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.card-subtitle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.card-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+.badge-baseline { color: var(--baseline-c); background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.25); }
+.badge-hallu    { color: var(--hallu-c);    background: rgba(252,129,129,0.12); border: 1px solid rgba(252,129,129,0.25); }
+.badge-rag      { color: var(--rag-c);      background: rgba(104,211,145,0.12); border: 1px solid rgba(104,211,145,0.25); }
+
+.card-body {
+  padding: 18px;
+  flex: 1;
+  display: flex; flex-direction: column; gap: 14px;
+}
+
+.answer-text {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--text);
+  flex: 1;
+}
+.answer-text .loading-text {
+  color: var(--text-muted);
+  font-style: italic;
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* ─── METRICS PANEL ──────────────────────────────────────────── */
+.metrics-panel {
+  border-top: 1px solid var(--border);
+  padding: 14px 18px;
+  background: rgba(0,0,0,0.2);
+}
+.metrics-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.metric-item {
+  display: flex; flex-direction: column; gap: 2px;
+}
+.metric-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.metric-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ─── CONFIDENCE SCORE RING ──────────────────────────────────── */
+.confidence-ring-wrap {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 4px;
+}
+.ring-svg { transform: rotate(-90deg); }
+.ring-bg   { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 4; }
+.ring-fill { fill: none; stroke-width: 4; stroke-linecap: round; transition: stroke-dashoffset 1s ease; }
+.ring-text-wrap {
+  display: flex; flex-direction: column;
+}
+.ring-score {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+.ring-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+.verdict-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  align-self: flex-start;
+}
+.verdict-high   { color: var(--rag-c);   background: rgba(104,211,145,0.12); border: 1px solid rgba(104,211,145,0.3); }
+.verdict-medium { color: var(--accent3); background: rgba(246,173,85,0.12);  border: 1px solid rgba(246,173,85,0.3); }
+.verdict-low    { color: var(--hallu-c); background: rgba(252,129,129,0.12); border: 1px solid rgba(252,129,129,0.25); }
+
+/* ─── PROGRESS BAR METRICS ───────────────────────────────────── */
+.metric-bar-item {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.metric-bar-header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.metric-bar-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.metric-bar-val {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+.metric-bar-track {
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.metric-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 1s ease;
+  width: 0%;
+}
+
+/* ─── LATENCY CHIP ───────────────────────────────────────────── */
+.latency-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+}
+.latency-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.latency-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent3);
+}
+
+/* ─── SKELETON LOADER ────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+  height: 12px;
+}
+.skeleton + .skeleton { margin-top: 8px; }
+.skeleton.short { width: 60%; }
+.skeleton.medium { width: 85%; }
+.skeleton.long { width: 100%; }
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ─── TYPING INDICATOR ───────────────────────────────────────── */
+.typing-dots {
+  display: flex; gap: 4px; align-items: center;
+}
+.typing-dots span {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: bounce-dot 1.2s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce-dot {
+  0%,80%,100% { transform: scale(0.6); opacity: 0.4; }
+  40%          { transform: scale(1);   opacity: 1; }
+}
+
+/* ─── INPUT AREA ─────────────────────────────────────────────── */
+.input-area {
+  flex-shrink: 0;
+  padding: 16px 24px 20px;
+  background: rgba(8,12,18,0.92);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+}
+.input-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 16px;
+  transition: var(--transition);
+}
+.input-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99,179,237,0.08);
+}
+#query-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-size: 15px;
+  resize: none;
+  max-height: 120px;
+  min-height: 24px;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+#query-input::placeholder { color: var(--text-dim); }
+.send-btn {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border: none; cursor: pointer;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  transition: var(--transition);
+  color: var(--bg);
+  font-size: 18px;
+}
+.send-btn:hover:not(:disabled) {
+  transform: scale(1.06);
+  box-shadow: 0 4px 16px rgba(99,179,237,0.35);
+}
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+.input-hint {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  letter-spacing: 0.04em;
+}
+
+/* ─── ERROR TOAST ────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 100px; left: 50%; transform: translateX(-50%);
+  background: rgba(252,129,129,0.15);
+  border: 1px solid rgba(252,129,129,0.3);
+  color: var(--hallu-c);
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  z-index: 100;
+  animation: toast-in 0.3s ease;
+  backdrop-filter: blur(12px);
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ─── SCROLLBAR GLOBAL ───────────────────────────────────────── */
+* { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+
+/* ─── CITATION HIGHLIGHT ─────────────────────────────────────── */
+.source-tag {
+  display: inline;
+  background: rgba(99,179,237,0.12);
+  color: var(--accent);
+  border: 1px solid rgba(99,179,237,0.22);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  margin: 0 2px;
+}
+
+/* ─── INTENT TAG ─────────────────────────────────────────────── */
+.intent-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  color: var(--accent2);
+  background: rgba(79,209,197,0.08);
+  border: 1px solid rgba(79,209,197,0.2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+  width: fit-content;
+}
+
+/* ─── SECTION DIVIDER ────────────────────────────────────────── */
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  text-align: center;
+  display: flex; align-items: center; gap: 12px;
+  margin: 4px 0;
+}
+.section-label::before, .section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🧠</div>
+      <div>
+        <div class="logo-text">RAG Intelligence</div>
+        <div class="logo-sub">Anti-Hallucination Engine v6</div>
+      </div>
+    </div>
+    <div class="header-badges">
+      <div class="badge badge-model">llama-3.3-70b</div>
+      <div class="badge badge-live">
+        <div class="live-dot"></div>
+        Live Web Search
+      </div>
+    </div>
+  </header>
+
+  <!-- LEGEND -->
+  <div class="legend-bar">
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--baseline-c)"></div>
+      Baseline LLM — No retrieval
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--hallu-c)"></div>
+      Hallucinating AI — Overconfident
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot" style="background:var(--rag-c)"></div>
+      RAG v6 — Grounded + Verified
+    </div>
+  </div>
+
+  <!-- CHAT AREA -->
+  <div class="chat-area" id="chat-area">
+    <div class="welcome" id="welcome-screen">
+      <div class="welcome-orb">🔬</div>
+      <h1>Ask anything. See the truth.</h1>
+      <p>Every query runs through three AI systems simultaneously — exposing the difference between hallucination and grounded intelligence.</p>
+      <div class="suggestion-chips">
+        <div class="chip" onclick="fillQuery(this)">Who is the current CM of Maharashtra?</div>
+        <div class="chip" onclick="fillQuery(this)">Who won the 2023 Cricket World Cup?</div>
+        <div class="chip" onclick="fillQuery(this)">What is the boiling point of ethanol?</div>
+        <div class="chip" onclick="fillQuery(this)">Who directed the movie Oppenheimer?</div>
+        <div class="chip" onclick="fillQuery(this)">What are the side effects of Metformin?</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INPUT -->
+  <div class="input-area">
+    <div class="input-wrap">
+      <textarea
+        id="query-input"
+        placeholder="Ask anything — political, scientific, sports, medical, historical…"
+        rows="1"
+        onkeydown="handleKey(event)"
+        oninput="autoResize(this)"
+      ></textarea>
+      <button class="send-btn" id="send-btn" onclick="sendQuery()" title="Send">
+        &#10148;
+      </button>
+    </div>
+    <div class="input-hint">Enter to send &nbsp;·&nbsp; Shift+Enter for new line &nbsp;·&nbsp; Powered by Groq + DuckDuckGo</div>
+  </div>
+
+</div>
+
+<script>
+// ─── ANIMATED BACKGROUND ─────────────────────────────────────
+const canvas = document.getElementById('bg-canvas');
+const ctx2d  = canvas.getContext('2d');
+let W, H, particles = [];
+
+function initCanvas() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  particles = Array.from({length: 55}, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    r: Math.random() * 1.4 + 0.3,
+    vx: (Math.random() - 0.5) * 0.3,
+    vy: (Math.random() - 0.5) * 0.3,
+    alpha: Math.random() * 0.5 + 0.1,
+    hue: Math.random() < 0.5 ? 207 : 174,
+  }));
+}
+
+function drawBg() {
+  ctx2d.clearRect(0, 0, W, H);
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy;
+    if (p.x < 0) p.x = W; if (p.x > W) p.x = 0;
+    if (p.y < 0) p.y = H; if (p.y > H) p.y = 0;
+    ctx2d.beginPath();
+    ctx2d.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx2d.fillStyle = `hsla(${p.hue},70%,70%,${p.alpha})`;
+    ctx2d.fill();
+  }
+  // subtle grid
+  ctx2d.strokeStyle = 'rgba(99,179,237,0.03)';
+  ctx2d.lineWidth = 1;
+  for (let x = 0; x < W; x += 80) {
+    ctx2d.beginPath(); ctx2d.moveTo(x, 0); ctx2d.lineTo(x, H); ctx2d.stroke();
+  }
+  for (let y = 0; y < H; y += 80) {
+    ctx2d.beginPath(); ctx2d.moveTo(0, y); ctx2d.lineTo(W, y); ctx2d.stroke();
+  }
+  requestAnimationFrame(drawBg);
+}
+window.addEventListener('resize', initCanvas);
+initCanvas(); drawBg();
+
+// ─── HELPERS ─────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); }
+}
+function fillQuery(el) {
+  document.getElementById('query-input').value = el.textContent.trim();
+  autoResize(document.getElementById('query-input'));
+}
+
+function showToast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+function scrollBottom() {
+  const ca = document.getElementById('chat-area');
+  ca.scrollTo({ top: ca.scrollHeight, behavior: 'smooth' });
+}
+
+function confidenceColor(score) {
+  if (score >= 72) return 'var(--rag-c)';
+  if (score >= 45) return 'var(--accent3)';
+  return 'var(--hallu-c)';
+}
+
+function verdictClass(score) {
+  if (score >= 72) return 'verdict-high';
+  if (score >= 45) return 'verdict-medium';
+  return 'verdict-low';
+}
+
+function formatAnswer(text) {
+  if (!text) return '<em style="color:var(--text-dim)">No answer returned.</em>';
+  // highlight [Source N] citations
+  return text
+    .replace(/\[Source\s*(\d+)\]/gi, '<span class="source-tag">[S$1]</span>')
+    .replace(/⚠️/g, '<span style="color:var(--accent3)">⚠️</span>');
+}
+
+// ─── SKELETON CARD BUILDER ────────────────────────────────────
+function buildSkeletonCard(type) {
+  const configs = {
+    baseline: {
+      colorVar: 'var(--baseline-c)',
+      icon: '🤖',
+      title: 'Baseline LLM',
+      sub: 'Parametric knowledge only',
+      badgeClass: 'badge-baseline',
+      badgeText: 'No retrieval',
+      cardClass: 'card-baseline',
+    },
+    hallu: {
+      colorVar: 'var(--hallu-c)',
+      icon: '🎭',
+      title: 'Hallucinating AI',
+      sub: 'Overconfident — no grounding',
+      badgeClass: 'badge-hallu',
+      badgeText: 'Ungrounded',
+      cardClass: 'card-hallu',
+    },
+    rag: {
+      colorVar: 'var(--rag-c)',
+      icon: '🔬',
+      title: 'RAG v6 — Universal',
+      sub: 'Retrieved + verified answer',
+      badgeClass: 'badge-rag',
+      badgeText: 'Grounded',
+      cardClass: 'card-rag',
+    },
+  };
+  const c = configs[type];
+  return `
+  <div class="answer-card ${c.cardClass}" id="card-${type}">
+    <div class="card-header">
+      <div class="card-icon">${c.icon}</div>
+      <div class="card-title-group">
+        <div class="card-title" style="color:${c.colorVar}">${c.title}</div>
+        <div class="card-subtitle">${c.sub}</div>
+      </div>
+      <div class="card-badge ${c.badgeClass}">${c.badgeText}</div>
+    </div>
+    <div class="card-body">
+      <div class="answer-text" id="text-${type}">
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+      </div>
+      <div id="metrics-${type}"></div>
+    </div>
+  </div>`;
+}
+
+// ─── METRICS RENDERER ────────────────────────────────────────
+function renderBasicMetrics(containerId, m, color) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = `
+    <div class="metrics-panel">
+      <div class="metrics-title">📊 Metrics</div>
+      <div class="metrics-grid">
+        <div class="metric-item">
+          <div class="metric-label">Tokens</div>
+          <div class="metric-value" style="color:${color}">${m.length.total_tokens}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Content Words</div>
+          <div class="metric-value" style="color:${color}">${m.length.content_tokens}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Lexical Div.</div>
+          <div class="metric-value" style="color:${color}">${m.lexical_diversity}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Latency</div>
+          <div class="metric-value" style="color:var(--accent3)">${m.latency}s</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderRAGMetrics(containerId, m) {
+  const score = m.confidence_score;
+  const color = confidenceColor(score);
+  const circ  = 2 * Math.PI * 20;
+  const dash  = circ - (score / 100) * circ;
+  const vc    = verdictClass(score);
+  const verdictText = score >= 72 ? '✅ HIGH' : score >= 45 ? '⚠️ MEDIUM' : '❌ LOW';
+
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  el.innerHTML = `
+    <div class="metrics-panel">
+      <div class="metrics-title">📊 Full Metrics</div>
+      ${m.intent ? `<div class="intent-tag">🎯 ${m.intent.toUpperCase()}</div>` : ''}
+
+      <div class="confidence-ring-wrap">
+        <svg class="ring-svg" width="52" height="52" viewBox="0 0 48 48">
+          <circle class="ring-bg" cx="24" cy="24" r="20"/>
+          <circle class="ring-fill"
+            cx="24" cy="24" r="20"
+            stroke="${color}"
+            stroke-dasharray="${circ}"
+            stroke-dashoffset="${circ}"
+            id="ring-fill-anim"
+          />
+        </svg>
+        <div class="ring-text-wrap">
+          <div class="ring-score" style="color:${color}">${score}</div>
+          <div class="ring-label">Confidence</div>
+        </div>
+        <div class="verdict-tag ${vc}">${verdictText} CONFIDENCE</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:7px;margin-top:12px">
+        ${metricBar('Faithfulness', m.faithfulness_score, 'var(--rag-c)')}
+        ${metricBar('Consistency', m.consistency_score, 'var(--accent2)')}
+        ${metricBar('Entity Ground', m.entity_grounding, 'var(--accent)')}
+        ${metricBar('Ctx Util', m.context_utilization, 'var(--baseline-c)')}
+        ${metricBar('Hallucin.↓', 1 - m.hallucination_rate, 'var(--hallu-c)', true)}
+      </div>
+
+      <div class="metrics-grid" style="margin-top:10px">
+        <div class="metric-item">
+          <div class="metric-label">Precision@K</div>
+          <div class="metric-value" style="color:var(--accent)">${m.precision_at_k}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Recall@K</div>
+          <div class="metric-value" style="color:var(--accent)">${m.recall_at_k}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">MRR</div>
+          <div class="metric-value" style="color:var(--accent)">${m.mrr}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">ROUGE-L</div>
+          <div class="metric-value" style="color:var(--accent2)">${m.rouge_l_vs_context}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Token F1</div>
+          <div class="metric-value" style="color:var(--accent2)">${m.token_f1}</div>
+        </div>
+        <div class="metric-item">
+          <div class="metric-label">Docs Retrieved</div>
+          <div class="metric-value" style="color:var(--rag-c)">${m.docs_primary}</div>
+        </div>
+      </div>
+
+      <div class="latency-row">
+        <div class="latency-label">⏱ Total Latency</div>
+        <div class="latency-val">${m.latency}s</div>
+      </div>
+    </div>`;
+
+  // Animate confidence ring
+  setTimeout(() => {
+    const ring = document.getElementById('ring-fill-anim');
+    if (ring) ring.style.strokeDashoffset = dash;
+  }, 100);
+}
+
+function metricBar(label, value, color, invert = false) {
+  const pct = Math.round(value * 100);
+  const displayVal = invert ? (1 - value).toFixed(4) : value.toFixed ? value.toFixed(4) : value;
+  return `
+    <div class="metric-bar-item">
+      <div class="metric-bar-header">
+        <div class="metric-bar-label">${label}</div>
+        <div class="metric-bar-val" style="color:${color}">${displayVal}</div>
+      </div>
+      <div class="metric-bar-track">
+        <div class="metric-bar-fill" style="width:${pct}%;background:${color}"></div>
+      </div>
+    </div>`;
+}
+
+// ─── MAIN SEND HANDLER ────────────────────────────────────────
+let isLoading = false;
+
+async function sendQuery() {
+  const input = document.getElementById('query-input');
+  const query = input.value.trim();
+  if (!query || isLoading) return;
+
+  isLoading = true;
+  document.getElementById('send-btn').disabled = true;
+
+  // Hide welcome
+  const ws = document.getElementById('welcome-screen');
+  if (ws) ws.remove();
+
+  const chatArea = document.getElementById('chat-area');
+
+  // User bubble
+  const block = document.createElement('div');
+  block.className = 'message-block';
+  block.innerHTML = `
+    <div class="user-bubble-wrap">
+      <div class="user-bubble">
+        <div class="user-avatar">👤</div>
+        <div>${query.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+      </div>
+    </div>
+    <div class="section-label">Generating three responses simultaneously</div>
+    <div class="answers-grid" id="answers-grid-${Date.now()}">
+      ${buildSkeletonCard('baseline')}
+      ${buildSkeletonCard('hallu')}
+      ${buildSkeletonCard('rag')}
+    </div>`;
+  chatArea.appendChild(block);
+  scrollBottom();
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  try {
+    const resp = await fetch('https://reductioninhallucinationofllm.onrender.com/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+
+    if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
+    const data = await resp.json();
+
+    // ── Populate Baseline ──
+    const baseText = document.getElementById('text-baseline');
+    if (baseText) baseText.innerHTML = formatAnswer(data.baseline_answer);
+    renderBasicMetrics('metrics-baseline', data.baseline_metrics, 'var(--baseline-c)');
+
+    // ── Populate Hallucinating ──
+    const halluText = document.getElementById('text-hallu');
+    if (halluText) halluText.innerHTML = formatAnswer(data.hallu_answer);
+    renderBasicMetrics('metrics-hallu', data.hallu_metrics, 'var(--hallu-c)');
+
+    // ── Populate RAG ──
+    const ragText = document.getElementById('text-rag');
+    if (ragText) ragText.innerHTML = formatAnswer(data.rag_answer);
+    renderRAGMetrics('metrics-rag', data.rag_metrics);
+
+  } catch (err) {
+    // If no backend yet — show demo mode
+    if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError') || err.message.includes('Server error')) {
+      renderDemoMode(query);
+    } else {
+      showToast('Error: ' + err.message);
+      ['baseline','hallu','rag'].forEach(t => {
+        const el = document.getElementById('text-' + t);
+        if (el) el.innerHTML = '<em style="color:var(--hallu-c)">Failed to load response.</em>';
+      });
+    }
+  }
+
+  isLoading = false;
+  document.getElementById('send-btn').disabled = false;
+  scrollBottom();
+}
+
+// ─── DEMO MODE (no backend needed) ───────────────────────────
+function renderDemoMode(query) {
+  const demoBase = `Based on my training knowledge: This is a parametric-only response. I will answer from what I know up to my training cutoff, without consulting any live sources. The answer may be outdated or incorrect for rapidly changing topics like current political positions.`;
+
+  const demoHallu = `I can definitively tell you the answer with complete certainty! There is absolutely no ambiguity here whatsoever. This is a confident, specific, authoritative answer that I am 100% sure about. [Note: This response deliberately avoids any uncertainty and may contain fabricated details.]`;
+
+  const demoRag = `Based on [Source 1] and [Source 2], here is the grounded answer retrieved from live web sources. This response was verified against ${Math.floor(Math.random()*4)+5} independent documents and cross-checked with a separate verification retrieval pass. [Source 3] confirms the key facts stated above.`;
+
+  const demoBaseMet = {
+    length: { total_tokens: 38, content_tokens: 22 },
+    lexical_diversity: 0.8421,
+    latency: 0.91
+  };
+  const demoHalluMet = {
+    length: { total_tokens: 44, content_tokens: 28 },
+    lexical_diversity: 0.7954,
+    latency: 0.73
+  };
+  const demoRagMet = {
+    confidence_score: 81.5,
+    intent: 'general',
+    answer_type: 'factual answer',
+    faithfulness_score: 0.9,
+    consistency_score: 0.85,
+    entity_grounding: 0.875,
+    context_utilization: 0.76,
+    hallucination_rate: 0.12,
+    precision_at_k: 0.8667,
+    recall_at_k: 1.0,
+    mrr: 1.0,
+    rouge_l_vs_context: 0.4523,
+    token_f1: 0.7812,
+    docs_primary: 7,
+    latency: 22.4
+  };
+
+  document.getElementById('text-baseline').innerHTML = formatAnswer(demoBase);
+  renderBasicMetrics('metrics-baseline', demoBaseMet, 'var(--baseline-c)');
+
+  document.getElementById('text-hallu').innerHTML = formatAnswer(demoHallu);
+  renderBasicMetrics('metrics-hallu', demoHalluMet, 'var(--hallu-c)');
+
+  document.getElementById('text-rag').innerHTML = formatAnswer(demoRag);
+  renderRAGMetrics('metrics-rag', demoRagMet);
+
+  showToast('⚡ Demo mode — connect the Python backend to get real answers');
+}
+</script>
+
+</body>
+</html>
